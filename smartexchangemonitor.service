@@ -1,0 +1,13 @@
+[Unit]
+Description=SmartExchangeMonitor service
+After=network-online.target
+
+[Service]
+User=<your_user>
+Type=simple
+ExecStart=<path>
+Restart=always
+RestartSec=15s
+
+[Install]
+WantedBy=multi-user.target
