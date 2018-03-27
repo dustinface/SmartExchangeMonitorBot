@@ -23,6 +23,7 @@ COINEXCHANGE = 3
 class Request(object):
 
     def __init__(self,exchange, future, cb):
+        self.started = True
         self.exchange = exchange
         self.future = future
         self.future.add_done_callback(self.futureCB)
@@ -54,12 +55,12 @@ class SmartExchangeMonitor(object):
         self.database = db
         # Sesstion for exchange requests
         self.session = FuturesSession(max_workers=20)
-        # Timer for exchange updates
+
         self.timer = util.RepeatingTimer(60, self.poll)
         self.timer.start()
 
         self.hitbtc = {'deposit':False, 'withdraw':False, 'updated': 0 }
-        self.cryptopia = {'status': 'Maintenance', 'updated': 0 }
+        self.cryptopia = {'status': 'OK','message':None, 'updated': 0 }
         self.coinexchange = {'wallet':'offline', 'updated': 0 }
 
         self.poll()
@@ -88,6 +89,9 @@ class SmartExchangeMonitor(object):
         self.updateHitBTC()
         self.updateCoinexchangeIO()
 
+    ######
+    # Send a message :text to a specific chat :chatId
+    ######
     def sendMessage(self, chatId, text):
 
         logger.info("sendMessage - Chat: {}, Text: {}".format(chatId,text))
@@ -129,6 +133,9 @@ class SmartExchangeMonitor(object):
         requestUrl = "https://api.hitbtc.com/api/2/public/currency/SMART"
         Request(HITBTC, self.session.get(requestUrl), self.updatedExchange)
 
+    ######
+    # Callback which get called when there is a new releases in the smartcash repo.
+    ######
     def updatedExchange(self, request):
 
         data = request.data
@@ -136,7 +143,7 @@ class SmartExchangeMonitor(object):
         notify = None
 
         if request.status != 200:
-            logger.warning("Request failed {}, {}".format(request.exchange,data))
+            logger.warning("Request failed {}, {}".format(request.exchange,request.status))
             return
 
         if request.exchange == CRYPTOPIA:
@@ -149,12 +156,18 @@ class SmartExchangeMonitor(object):
                 for entry in data['Data']:
                     if 'Id' in entry and entry['Id'] == 582:
                         status = entry['Status']
+                        message = entry['StatusMessage']
 
                 if self.cryptopia['status'] != status:
                     logger.info("Cryptopia notify {}".format(status))
                     notify = CRYPTOPIA
+                
+                if self.cryptopia['message'] and self.cryptopia['message'] != message and message != '':
+                    logger.info("Cryptopia notify {}".format(message))
+                    notify = CRYPTOPIA
 
                 self.cryptopia['status'] = status
+                self.cryptopia['message'] = message
                 self.cryptopia['updated'] = time.time()
 
         elif request.exchange == HITBTC:
@@ -176,6 +189,7 @@ class SmartExchangeMonitor(object):
                 self.hitbtc['updated'] = time.time()
 
         elif request.exchange == COINEXCHANGE:
+
             logger.info("Updated coinexchange")
 
             if 'success' in data and data['success'] == '1' and\
@@ -188,18 +202,21 @@ class SmartExchangeMonitor(object):
 
                 self.coinexchange['wallet'] = wallet
                 self.coinexchange['updated'] = time.time()
-                
         else:
+
             logger.warning("unknown exchange")
 
-        if notify:
+        if notify and not started:
             self.notify(notify)
+ 
+        self.started = False
 
     def status(self, bot, update):
 
         response = "*Cryptopia*\n"
         response += "Last updated {}\n".format(util.secondsToText(int(time.time() - self.cryptopia['updated'])))
-        response += "*Deposit* `{}`\n\n".format(self.cryptopia['status'])
+        response += "*Status* `{}`\n".format(self.cryptopia['status'])
+        response += "*Message* `{}`\n\n".format(self.cryptopia['message'])
 
         response += "*HitBTC*\n"
         response += "Last updated {}\n".format(util.secondsToText(int(time.time() - self.hitbtc['updated'])))
@@ -209,6 +226,8 @@ class SmartExchangeMonitor(object):
         response += "*Coinexchange*\n"
         response += "Last updated {}\n".format(util.secondsToText(int(time.time() - self.coinexchange['updated'])))
         response += "*Wallet* `{}`\n".format(self.coinexchange['wallet'])
+        
+        self.database.addChat(update.message.chat_id)
 
         self.sendMessage(update.message.chat_id, response)
 
@@ -230,6 +249,10 @@ class SmartExchangeMonitor(object):
     def error(self, bot, update, error):
         logger.error('Update "%s" caused error "%s"' % (update, error))
 
+    ######
+    # Callback for evaluating if someone in the database had an upcomming event
+    # and send messages to all chats with activated notifications
+    ######
     def notify(self, exchange):
 
         logger.info("notify {}".format(exchange))
@@ -238,7 +261,8 @@ class SmartExchangeMonitor(object):
 
         if exchange == CRYPTOPIA:
             response += "*Cryptopia*\n"
-            response += "*Status* `{}`\n\n".format(self.cryptopia['status'])
+            response += "*Status* `{}`\n".format(self.cryptopia['status'])
+            response += "*Message* `{}`\n\n".format(self.cryptopia['message'])
 
         if exchange == HITBTC:
             response += "*HitBTC*\n"
