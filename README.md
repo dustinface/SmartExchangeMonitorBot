@@ -5,3 +5,6 @@ Just a simple telegram bot to watch the status of the exchange's SMART wallets f
 https://t.me/SmartExchangeMonitorBot
 
 Beer - STsDhYJZZrVFCaA5FX2AYWP27noYo3RUjD
+
+
+1
